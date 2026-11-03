@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+# Build the Tier node package from the upstream source tree this debian/ dir is
+# overlaid onto (see the publish-ppa workflow). The upstream CMake owns the
+# install layout (binaries, systemd unit, /etc/tier config); we only drive it
+# with the release flags and let debhelper handle packaging.
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --buildsystem=cmake+ninja
+
+override_dh_auto_configure:
+	# Release flags mirror the upstream release build. CMAKE_INSTALL_LIBDIR=lib
+	# keeps the systemd unit at /usr/lib/systemd/system (not a multiarch triplet
+	# path). TIER_VERSION is intentionally not passed: upstream CMake reads it
+	# from the VERSION file in the checkout, so the binary reports the clean
+	# upstream version (e.g. 0.5.0), independent of the Debian package version
+	# that carries the ~series/revision suffix.
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DTIER_SANITIZE=OFF \
+		-DTIER_WERROR=OFF \
+		-DCMAKE_INSTALL_LIBDIR=lib \
+		-DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++"
+
+override_dh_installsystemd:
+	# Enable tierd at boot but do NOT start it on install: the operator reviews
+	# /etc/tier/tierd.toml (roles, network, seeds) first, then starts it.
+	dh_installsystemd --no-start

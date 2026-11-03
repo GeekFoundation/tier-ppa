@@ -1,0 +1,24 @@
+Source: tierd
+Section: net
+Priority: optional
+Maintainer: Geek Foundation <admin@geek.foundation>
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake (>= 3.25),
+ ninja-build,
+ perl
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/tier-org/tier-core
+
+Package: tierd
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: node daemon for Tier, a decentralized messaging/payments network
+ Tier is a decentralized network for encrypted messaging and payments. This
+ package provides the node daemon (tierd) and the local admin CLI (tierctl).
+ .
+ The daemon speaks QUIC (ngtcp2 over a vendored OpenSSL 3.5, statically linked)
+ with an Ed25519 certificate-bound identity, and is managed by systemd. The
+ vendored transport and crypto plus the C++ runtime are linked statically, so
+ the only shared dependency is glibc.

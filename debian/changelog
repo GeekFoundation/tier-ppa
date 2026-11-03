@@ -1,0 +1,7 @@
+tierd (0.0.0~dev1) UNRELEASED; urgency=medium
+
+  * Placeholder entry for local packaging checks. The publish-ppa workflow
+    regenerates this file per upload via scripts/make-changelog.sh; do not rely
+    on this version.
+
+ -- Geek Foundation <admin@geek.foundation>  Mon, 03 Nov 2026 00:00:00 +0000

@@ -1,0 +1,186 @@
+name: publish-ppa
+
+# Manual, controlled publish of a Tier release to the Geek Foundation PPA.
+#
+# Flow: an engineer clicks "Run workflow", enters the Tier tag and target Ubuntu
+# series. The `build` job checks out that exact upstream tag (with vendored
+# submodules), overlays this repo's debian/ packaging, and builds an UNSIGNED
+# source package. The `publish` job runs only after a human approves the
+# `ppa-publish` environment, then signs and uploads the source package with
+# dput. Launchpad's build farm compiles the binary .deb per series/arch and
+# signs the apt Release; nothing is prebuilt here.
+#
+# This repo never forks or mirrors Tier: it references a tag, so it is always in
+# sync with no merge and no conflicts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tier_ref:
+        description: "Tier git tag to package (e.g. v0.5.0)"
+        required: true
+      series:
+        description: "Target Ubuntu series"
+        required: true
+        default: noble
+        type: choice
+        # noble only: it is the series we support. jammy ships cmake 3.22, and
+        # tier-core requires >= 3.25, so a jammy upload would sit in Launchpad's
+        # dependency-wait forever instead of failing.
+        options: [noble]
+      revision:
+        description: "Packaging revision N (bump to re-upload the SAME Tier version)"
+        required: true
+        default: "1"
+      tier_repo:
+        description: "Upstream repo (owner/name)"
+        required: true
+        default: tier-org/tier-core
+      ppa:
+        description: "Target PPA (owner/name)"
+        required: true
+        default: geekfoundation/tier
+      dry_run:
+        description: "Build the source package but do NOT upload"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate tag input
+        run: |
+          case "${{ inputs.tier_ref }}" in
+            v[0-9]*) : ;;
+            *) echo "::error::tier_ref must be a version tag like v0.5.0"; exit 1 ;;
+          esac
+
+      - name: Checkout packaging repo
+        uses: actions/checkout@v5
+        with:
+          path: packaging
+
+      - name: Checkout Tier at the tag (with submodules)
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.tier_repo }}
+          ref: ${{ inputs.tier_ref }}
+          submodules: recursive
+          path: src
+
+      - name: Install packaging tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            devscripts debhelper dpkg-dev cmake ninja-build perl
+
+      - name: Overlay debian/ and generate changelog
+        env:
+          DEBFULLNAME: Geek Foundation
+          DEBEMAIL: admin@geek.foundation
+        run: |
+          set -eux
+          # The upstream checkout must not already carry a debian/ dir.
+          rm -rf src/debian
+          cp -a packaging/debian src/debian
+          upver="${{ inputs.tier_ref }}"; upver="${upver#v}"
+          # Sanity: the embedded VERSION file must match the tag.
+          file_ver="$(head -n1 src/VERSION | tr -d '[:space:]')"
+          if [ "$file_ver" != "$upver" ]; then
+            echo "::error::src/VERSION ($file_ver) != tag ($upver)"; exit 1
+          fi
+          packaging/scripts/make-changelog.sh "$upver" "${{ inputs.series }}" "${{ inputs.revision }}" src
+          # Drop VCS metadata so it does not bloat the native source tarball.
+          find src -name .git -prune -exec rm -rf {} +
+
+      - name: Build unsigned source package
+        run: |
+          set -eux
+          cd src
+          debuild -S -us -uc -d
+
+      - name: Collect source artifacts
+        run: |
+          set -eux
+          mkdir -p out
+          # dpkg-source writes the source package next to the checkout dir.
+          mv *.dsc *.tar.* *.changes *.buildinfo out/ 2>/dev/null || true
+          ls -l out
+
+      - name: Upload source package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-package
+          path: out/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    # Gated: configure required reviewers on the `ppa-publish` environment in
+    # repo settings. The job pauses here until a second person approves, so the
+    # upload is a deliberate, logged action.
+    #
+    # A dry run reaches this job too, and signs, so the signing path is exercised
+    # before a real upload instead of being tried for the first time on one; only
+    # the dput step is skipped. The signing key deliberately stays behind the
+    # approval gate: an ungated job that signs would hand out a signed source
+    # package as an artifact, which is uploadable from anywhere.
+    environment: ppa-publish
+    steps:
+      - name: Download source package
+        uses: actions/download-artifact@v4
+        with:
+          name: source-package
+          path: out
+
+      - name: Install upload tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends devscripts dput-ng gnupg
+
+      - name: Import signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          set -eu
+          mkdir -m 700 -p ~/.gnupg
+          echo "allow-loopback-pinentry" > ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent || true
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Sign the source package
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -eu
+          cd out
+          changes="$(ls ./*_source.changes)"
+          # Pass the passphrase via a file, not on a command line, so it is not
+          # exposed in process args and survives any special characters.
+          pf="$(mktemp)"; printf '%s' "$GPG_PASSPHRASE" > "$pf"
+          trap 'rm -f "$pf"' EXIT
+          debsign \
+            -p"gpg --batch --pinentry-mode loopback --passphrase-file $pf" \
+            -k"${GPG_KEY_ID}" "$changes"
+          gpg --verify "$changes"
+
+      - name: Upload to the PPA
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          set -eu
+          cd out
+          changes="$(ls ./*_source.changes)"
+          dput "ppa:${{ inputs.ppa }}" "$changes"
+          owner="${{ inputs.ppa }}"; name="${owner#*/}"; owner="${owner%%/*}"
+          echo "Uploaded. Watch the build at:" \
+            "https://launchpad.net/~${owner}/+archive/ubuntu/${name}/+packages"
+
+      - name: Dry run — not uploaded
+        if: ${{ inputs.dry_run == true }}
+        run: echo "dry_run: source package built and signed, dput skipped"

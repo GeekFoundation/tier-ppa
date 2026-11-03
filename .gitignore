@@ -1,0 +1,7 @@
+# Build artifacts from local source-package checks
+/out/
+*.dsc
+*.tar.*
+*.changes
+*.buildinfo
+*.deb
