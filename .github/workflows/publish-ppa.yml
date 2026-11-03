@@ -1,5 +1,12 @@
 name: publish-ppa
 
+# What the run is called everywhere it appears — the Actions list, the approval
+# screen, the notification mail. Without this the reviewer only sees "publish"
+# and has to open the run to learn which version they are approving.
+run-name: >-
+  tierd ${{ inputs.tier_ref }} -> ppa:${{ inputs.ppa }} (${{ inputs.series }},
+  rev ${{ inputs.revision }})${{ inputs.dry_run && ' [DRY RUN]' || '' }}
+
 # Manual, controlled publish of a Tier release to the Geek Foundation PPA.
 #
 # Flow: an engineer clicks "Run workflow", enters the Tier tag and target Ubuntu
@@ -50,6 +57,7 @@ permissions:
 
 jobs:
   build:
+    name: build ${{ inputs.tier_ref }} (${{ inputs.series }})
     runs-on: ubuntu-24.04
     steps:
       - name: Validate tag input
@@ -111,14 +119,40 @@ jobs:
           mv *.dsc *.tar.* *.changes *.buildinfo out/ 2>/dev/null || true
           ls -l out
 
+      - name: Write the run summary
+        run: |
+          set -eu
+          dsc="$(ls out/*.dsc)"
+          src="$(awk '/^Source:/{print $2}' "$dsc")"
+          ver="$(awk '/^Version:/{print $2}' "$dsc")"
+          tar="$(ls out/*.tar.*)"
+          sha="$(sha256sum "$tar" | cut -d' ' -f1)"
+          {
+            echo "## ${src} ${ver}"
+            echo
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| Tier tag | \`${{ inputs.tier_ref }}\` |"
+            echo "| upstream repo | \`${{ inputs.tier_repo }}\` |"
+            echo "| Ubuntu series | \`${{ inputs.series }}\` |"
+            echo "| package version | \`${ver}\` |"
+            echo "| target PPA | \`ppa:${{ inputs.ppa }}\` |"
+            echo "| dry run | \`${{ inputs.dry_run }}\` |"
+            echo "| source tarball | \`$(basename "$tar")\` |"
+            echo "| sha256 | \`${sha}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload source package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: source-package
           path: out/
           if-no-files-found: error
 
   publish:
+    name: >-
+      ${{ inputs.dry_run && format('sign {0} (dry run, no upload)', inputs.tier_ref)
+          || format('upload {0} to ppa:{1}', inputs.tier_ref, inputs.ppa) }}
     needs: build
     runs-on: ubuntu-24.04
     # Gated: configure required reviewers on the `ppa-publish` environment in
@@ -133,10 +167,20 @@ jobs:
     environment: ppa-publish
     steps:
       - name: Download source package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: source-package
           path: out
+
+      - name: State what is about to be signed
+        run: |
+          set -eu
+          dsc="$(ls out/*.dsc)"
+          echo "package: $(awk '/^Source:/{print $2}' "$dsc") $(awk '/^Version:/{print $2}' "$dsc")"
+          echo "tier tag: ${{ inputs.tier_ref }} from ${{ inputs.tier_repo }}"
+          echo "target: ppa:${{ inputs.ppa }} (${{ inputs.series }})"
+          echo "dry run: ${{ inputs.dry_run }}"
+          sha256sum out/*.tar.* out/*.dsc
 
       - name: Install upload tooling
         run: |
