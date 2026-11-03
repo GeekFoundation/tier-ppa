@@ -183,4 +183,5 @@ jobs:
 
       - name: Dry run — not uploaded
         if: ${{ inputs.dry_run == true }}
-        run: echo "dry_run: source package built and signed, dput skipped"
+        run: |
+          echo "dry_run: source package built and signed, dput skipped"
