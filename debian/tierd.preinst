@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+# Record whether tierd was running before this upgrade. This must happen before
+# the debhelper snippet below, which stops the unit (dh_installsystemd is run
+# with --no-start). debian/tierd.postinst reads the flag to decide whether to
+# bring the daemon back up on the new binary.
+if [ "$1" = "upgrade" ] && [ -d /run/systemd/system ]; then
+    if systemctl is-active --quiet tierd.service; then
+        touch /run/tierd.was-active
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

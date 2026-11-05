@@ -1,8 +1,10 @@
 #!/bin/sh
 set -e
 
-# #DEBHELPER# expands to the debhelper-generated snippets, including the
-# dh_installsystemd daemon-reload + enable (no start) for tierd.service.
+# The debhelper token below expands to the generated snippets, including the
+# dh_installsystemd daemon-reload + enable (no start) for tierd.service. Keep
+# the token out of comments: dh_installdeb substitutes it textually anywhere in
+# the file, so a mention inside a comment is replaced too and breaks the script.
 #DEBHELPER#
 
 if [ "$1" = "configure" ] && [ -z "$2" ]; then
@@ -12,14 +14,18 @@ if [ "$1" = "configure" ] && [ -z "$2" ]; then
 fi
 
 if [ "$1" = "configure" ] && [ -n "$2" ]; then
-    # Upgrade ($2 is the version being replaced): pick up the new binary.
-    # dh_installsystemd runs with --no-start, which suppresses the restart after
-    # an upgrade as well, so without this an unattended-upgrade would leave the
-    # old binary running until someone restarted it by hand. try-restart is a
-    # no-op on an inactive unit, so a node the operator deliberately stopped
-    # stays stopped.
-    if [ -d /run/systemd/system ]; then
-        deb-systemd-invoke try-restart tierd.service >/dev/null 2>&1 || true
+    # Upgrade ($2 is the version being replaced): bring the daemon back on the
+    # new binary, but only if it was running before the upgrade. The flag is
+    # written by debian/tierd.preinst, because dh_installsystemd --no-start
+    # stops the unit in preinst and emits no start of its own; without this an
+    # unattended-upgrade would silently leave the node down. restart is correct
+    # whether the unit is still active or already stopped, and a node the
+    # operator deliberately stopped has no flag and stays stopped.
+    if [ -e /run/tierd.was-active ]; then
+        rm -f /run/tierd.was-active
+        if [ -d /run/systemd/system ]; then
+            deb-systemd-invoke restart tierd.service >/dev/null || true
+        fi
     fi
 fi
 

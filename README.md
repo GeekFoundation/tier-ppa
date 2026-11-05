@@ -31,10 +31,11 @@ a conflict with Tier development.
    PPA page.
 
 On a fresh install the package enables `tierd` for boot but does not start it
-(the operator edits `/etc/tier/tierd.toml` first). On an **upgrade** the
-maintainer script runs `try-restart`, so a running node picks up the new binary
-— which is what makes `unattended-upgrades` on this PPA meaningful — while a
-node that was deliberately stopped stays stopped.
+(the operator edits `/etc/tier/tierd.toml` first). On an **upgrade**, `preinst`
+records whether the unit was active and then `dh_installsystemd --no-start`
+stops it; `postinst` restarts it only if that flag is present. So a running node
+picks up the new binary — which is what makes `unattended-upgrades` on this PPA
+meaningful — while a node the operator deliberately stopped stays stopped.
 
 To re-upload the **same** Tier version (e.g. a packaging-only fix), rerun with
 the same tag and a higher **revision** (Launchpad rejects an identical version).
