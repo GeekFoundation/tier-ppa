@@ -70,11 +70,54 @@ binary still reports the clean upstream version (`0.5.0`).
    `DEBFULLNAME`/`DEBEMAIL` in `.github/workflows/publish-ppa.yml` to the
    Foundation's address.
 
-Users then install with:
+## Installing tierd
 
+**Without automatic updates:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | sudo bash
 ```
-sudo add-apt-repository ppa:geekfoundation/tier
-sudo apt update && sudo apt install tierd
+
+**With automatic updates** (Ubuntu's `unattended-upgrades` picks up new releases):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | sudo bash -s -- --unattended-upgrade
+```
+
+The script is idempotent: re-running skips steps that are already done.
+
+After installation, edit `/etc/tier/tierd.toml` if needed, then:
+
+```bash
+sudo systemctl start tierd
+```
+
+## Uninstalling tierd
+
+Remove the package (keeps configuration files):
+
+```bash
+sudo apt remove tierd
+```
+
+Remove the package and purge all configuration:
+
+```bash
+sudo apt purge tierd
+sudo rm -rf /etc/tier
+```
+
+Also remove the PPA source if no longer needed:
+
+```bash
+sudo add-apt-repository --remove ppa:geekfoundation/tier
+```
+
+To disable automatic updates without uninstalling, remove the unattended-upgrades
+config file added by the install script:
+
+```bash
+sudo rm -f /etc/apt/apt.conf.d/51geekfoundation-tier
 ```
 
 ## Local check (optional, before pushing packaging changes)
