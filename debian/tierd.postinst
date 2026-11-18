@@ -24,6 +24,7 @@ if [ "$1" = "configure" ] && [ -n "$2" ]; then
     if [ -e /run/tierd.was-active ]; then
         rm -f /run/tierd.was-active
         if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload >/dev/null || true
             deb-systemd-invoke restart tierd.service >/dev/null || true
         fi
     fi
