@@ -72,21 +72,37 @@ binary still reports the clean upstream version (`0.5.0`).
 
 ## Installing tierd
 
-**Without automatic updates:**
+The install script adds the PPA, installs the package, copies the appropriate
+node config preset to `/etc/tier/tierd.toml` (only on first install — never
+overwrites an existing config), and optionally enables automatic updates.
+
+**Client node (default):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | sudo bash
 ```
 
-**With automatic updates** (Ubuntu's `unattended-upgrades` picks up new releases):
+**Client node with automatic updates:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | sudo bash -s -- --unattended-upgrade
 ```
 
+**Validator node:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | sudo bash -s -- --preset=validator
+```
+
+**Validator node with automatic updates:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | sudo bash -s -- --preset=validator --unattended-upgrade
+```
+
 The script is idempotent: re-running skips steps that are already done.
 
-After installation, edit `/etc/tier/tierd.toml` if needed, then:
+After installation, review `/etc/tier/tierd.toml` if needed, then:
 
 ```bash
 sudo systemctl start tierd

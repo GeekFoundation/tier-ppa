@@ -4,12 +4,16 @@
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | bash -s -- --unattended-upgrade
+#   curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | bash -s -- --preset=validator
+#   curl -fsSL https://raw.githubusercontent.com/GeekFoundation/tier-ppa/main/scripts/install.sh | bash -s -- --preset=validator --unattended-upgrade
 #
 # Options:
+#   --preset=<name>        Node config preset: client (default) or validator.
+#                          Copies /usr/share/doc/tierd/tierd.<name>.toml to
+#                          /etc/tier/tierd.toml on first install. Skipped if
+#                          the config file already exists.
 #   --unattended-upgrade   Also configure Ubuntu's unattended-upgrades to keep
 #                          tierd updated automatically.
-#   --preset=<name>        (future) Select a named node config preset shipped by
-#                          the package. Default: the upstream default (client).
 #
 # Re-running this script is safe: already-completed steps are skipped.
 
@@ -17,6 +21,7 @@ set -euo pipefail
 
 PPA="geekfoundation/tier"
 PACKAGE="tierd"
+PRESET="client"
 AUTO_UPGRADE=false
 
 # ---------------------------------------------------------------------------
@@ -27,9 +32,12 @@ for arg in "$@"; do
         --unattended-upgrade)
             AUTO_UPGRADE=true
             ;;
+        --preset=client|--preset=validator)
+            PRESET="${arg#--preset=}"
+            ;;
         --preset=*)
-            # Reserved for future use.
-            echo "note: --preset is not yet implemented; ignoring" >&2
+            echo "error: unknown preset '${arg#--preset=}'; valid values: client, validator" >&2
+            exit 1
             ;;
         *)
             echo "error: unknown argument: $arg" >&2
@@ -90,7 +98,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3 (optional): configure unattended-upgrades
+# Step 3: apply config preset
+# Copies the example config shipped by the package only on first install
+# (i.e. when /etc/tier/tierd.toml does not yet exist). Never overwrites an
+# existing config so re-runs and upgrades are safe.
+# ---------------------------------------------------------------------------
+CONFIG_DST="/etc/tier/tierd.toml"
+CONFIG_SRC="/usr/share/doc/${PACKAGE}/tierd.${PRESET}.toml"
+
+step "Applying preset '${PRESET}'"
+
+if [ -f "$CONFIG_DST" ]; then
+    skip "$CONFIG_DST already exists — not overwritten"
+elif [ ! -f "$CONFIG_SRC" ]; then
+    echo "error: preset file not found: $CONFIG_SRC" >&2
+    echo "       the installed package version may not support this preset" >&2
+    exit 1
+else
+    mkdir -p "$(dirname "$CONFIG_DST")"
+    cp "$CONFIG_SRC" "$CONFIG_DST"
+    echo "    wrote $CONFIG_DST (from preset '${PRESET}')"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 4 (optional): configure unattended-upgrades
 # ---------------------------------------------------------------------------
 UPGRADE_CONF="/etc/apt/apt.conf.d/51${_ppa_owner}-${_ppa_name}"
 
@@ -136,11 +167,12 @@ fi
 # ---------------------------------------------------------------------------
 echo
 echo "tierd $(dpkg-query -W -f='${Version}' "$PACKAGE") is installed."
+echo "Preset: ${PRESET}"
 if [ "$AUTO_UPGRADE" = true ]; then
     echo "Automatic updates: enabled (unattended-upgrades)"
 else
     echo "Automatic updates: disabled"
 fi
 echo
-echo "Edit /etc/tier/tierd.toml if needed, then:"
+echo "Review /etc/tier/tierd.toml if needed, then:"
 echo "  systemctl start tierd"
