@@ -1,7 +1,7 @@
-.PHONY: check-build publish publish-dry
+.PHONY: check-builds publish publish-dry
 
-check-build:
-	./scripts/check-build.sh
+check-builds:
+	./scripts/check-builds.sh
 
 publish:
 	./scripts/trigger-publish.sh
