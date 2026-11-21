@@ -26,6 +26,7 @@ DRY_RUN=false
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
+        --revision=*) REVISION="${arg#--revision=}" ;;
         *) echo "error: unknown argument: $arg" >&2; exit 1 ;;
     esac
 done
