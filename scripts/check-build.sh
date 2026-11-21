@@ -18,6 +18,31 @@ for cmd in curl jq; do
     fi
 done
 
-curl -fsSL \
-    "https://api.launchpad.net/1.0/~${ppa_owner}/+archive/ubuntu/${ppa_name}?ws.op=getBuildRecords&source_name=tierd" \
-    | jq '.entries[] | {version: .source_package_version, arch: .arch_tag, state: .buildstate}'
+sources=$(curl -fsSL \
+    "https://api.launchpad.net/1.0/~${ppa_owner}/+archive/ubuntu/${ppa_name}?ws.op=getPublishedSources&source_name=tierd")
+
+active_vers=$(echo "$sources" \
+    | jq -r '[.entries[] | select(.status == "Published" or .status == "Pending") | .source_package_version] | unique[]')
+
+if [ -z "$active_vers" ]; then
+    echo "[]"
+    exit 0
+fi
+
+all_builds=$(curl -fsSL \
+    "https://api.launchpad.net/1.0/~${ppa_owner}/+archive/ubuntu/${ppa_name}?ws.op=getBuildRecords&source_name=tierd")
+
+# Build a single JSON array: one object per active version.
+result="[]"
+while IFS= read -r ver; do
+    source_status=$(echo "$sources" \
+        | jq -r --arg v "$ver" '.entries[] | select(.source_package_version == $v) | .status' \
+        | head -n1)
+    builds=$(echo "$all_builds" \
+        | jq --arg v "$ver" '[.entries[] | select(.source_package_version == $v) | {arch: .arch_tag, state: .buildstate}]')
+    entry=$(jq -n --arg ver "$ver" --arg st "$source_status" --argjson b "$builds" \
+        '{version: $ver, status: $st, builds: $b}')
+    result=$(echo "$result" | jq --argjson e "$entry" '. + [$e]')
+done <<< "$active_vers"
+
+echo "$result"
